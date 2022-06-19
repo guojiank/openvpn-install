@@ -10,30 +10,29 @@
 
 set -e
 
-OS=
 LOCAL_IP=
 PUBLIC_IP=
 PORT=
 PROTOCOL=
 SUB_NET=
 
-EASY_RSA_URL="http://localhost/EasyRSA-3.1.0.tgz"
+EASY_RSA_URL="https://github.com/leekcoder/openvpn-install/raw/main/lib/EasyRSA-3.1.0.tgz"
 EASY_RSA_PATH=/etc/openvpn/easy-rsa
 
-OPEN_VPN_URL="http://localhost/openvpn-2.5.7.tar.gz"
+OPEN_VPN_URL="https://github.com/leekcoder/openvpn-install/raw/main/lib/openvpn-2.5.7.tar.gz"
 
-check_run_environment() {
+fatal() {
+    echo '[fatal] ' "$*" >&2
+    exit 1
+}
+
+verify_os() {
     if readlink /proc/$$/exe | grep -q 'dash'; then
         fatal 'This installer needs to be run with "bash", not "sh".'
     fi
-}
-
-check_os() {
-    if grep -iq ubuntu /etc/os-release &>/dev/null; then
-        OS='ubuntu'
-        return
+    if ! grep -iq ubuntu /etc/os-release &>/dev/null; then
+        fatal 'OS must be ubuntu'
     fi
-    [ -z $OS ] && fail 'Unknow OS!!'
 }
 
 easyrsa_install() {
@@ -133,9 +132,51 @@ verb 3
 EOF
 }
 
+new_client() {
+    client=$1
+    {
+        cat /etc/openvpn/server/client-common.txt
+        echo "<ca>"
+        cat /etc/openvpn/server/easy-rsa/pki/ca.crt
+        echo "</ca>"
+        echo "<cert>"
+        sed -ne '/BEGIN CERTIFICATE/,$ p' /etc/openvpn/server/easy-rsa/pki/issued/"$client".crt
+        echo "</cert>"
+        echo "<key>"
+        cat /etc/openvpn/server/easy-rsa/pki/private/"$client".key
+        echo "</key>"
+        echo "<tls-crypt>"
+        sed -ne '/BEGIN OpenVPN Static key/,$ p' /etc/openvpn/server/tc.key
+        echo "</tls-crypt>"
+    } >~/"$client".ovpn
+}
+
+IP_REG="^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$"
+
 #----------openvpn settings-----------
 {
-    check_run_environment
-    check_os
-    download
+    verify_os
+    if [ "$(command -v openvpn)" ]; then
+        echo 'openvpn has install'
+    else
+        echo 'openvpn not install'
+
+        until [[ $PUBLIC_IP =~ $IP_REG ]]; do
+            read -r -p 'public ip address: ' PUBLIC_IP
+        done
+
+        until [[ $LOCAL_IP =~ $IP_REG ]]; do
+            read -r -p 'local ip address': LOCAL_IP
+        done
+
+        until [[ $SUB_NET =~ $IP_REG ]]; do
+            read -r -p 'sub network address: ' SUB_NET
+        done
+
+        until [[ $PROTOCOL =~ (tcp)|(udp) ]]; do
+            read -r -p 'protocol [tcp/udp]: ' PROTOCOL
+        done
+
+        read -r -p 'port, default 1194: ' PORT
+    fi
 }
